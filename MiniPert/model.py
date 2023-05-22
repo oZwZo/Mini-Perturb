@@ -20,16 +20,16 @@ warnings.simplefilter('ignore', ValueWarning)
 
 class Perturb_NBGLM(object):
 	def __init__(self,
-					adata : sc.AnnData,
-					perturb_key : str,
-					plate_key : str,
-					celltype_key : str = None,
-					other_covariates : list = None,
-					interaction_terms : list = None,
-					genes : list = None,
-					n_jobs : int = 1,
-					alphas : list = None,
-					L1_weights : list = None,
+                adata : sc.AnnData,
+                perturb_key : str,
+                plate_key : str,
+                celltype_key : str = None,
+                other_covariates : list = None,
+                interaction_terms : list = None,
+                genes : list = None,
+                n_jobs : int = 1,
+                alphas : list = None,
+                L1_weights : list = None,
 					):
 		r"""
 		Generalized Linear Model following Negative Binomial family for mini-bulk RNA-seq perturbation data.
@@ -104,7 +104,7 @@ class Perturb_NBGLM(object):
 
 		# GLM formula
 		self.formula = 'Gene ~ ' + " + ".join(self.independent_variables)
-		print(f"Fitting Negative Binomial regression \n\tfor {len(self.genes)} genes \n\twith {len(self.independent_variables)} independent variables")
+		print(f"Fitting Negative Binomial regression \n\tfor {len(self.genes)} genes \n\twith {len(self.independent_variables)} independent variables + 1 intercept")
 		print("Gene ~ " +  " + ".join(self.independent_variables[:5]) + ' +  ...  + ' + " + ".join(self.independent_variables[-5:]))
 		self.pvalue_df = None # initialize
 
@@ -135,6 +135,8 @@ class Perturb_NBGLM(object):
 		# required arguments
 		assert self.perturb_key in self.obs_key , "Invalid perturb_key"
 		assert self.plate_key in self.obs_key , "Invalid plate_key"
+		self.perturb_variable = self.adata.obs[self.perturb_key].unique().tolist()
+		self.plate_variable = self.adata.obs[self.plate_key].unique().tolist()
 		self.add_variable_name(self.perturb_key)
 		self.add_variable_name(self.plate_key)
 
@@ -242,7 +244,10 @@ class Perturb_NBGLM(object):
 		Betas = np.stack([r[2] for r in res])
 		self.adata.varm['Betas'] = Betas
 
-		self.Differerntial_analysis()
+		self.Differerntial_analysis([]);
+		self.beta_df = pd.DataFrame(Betas.T,  
+									index=self.pvalue_df.index, 
+									columns=self.pvalue_df.columns)
 
 	def save_to(self, save_path):
 		
@@ -269,6 +274,9 @@ class Perturb_NBGLM(object):
 		self.adata.varm['Betas'] = checkpoint['Betas']
 
 		_ = self.Differerntial_analysis(condition=[]) # no return if passing []
+		self.beta_df = pd.DataFrame(checkpoint['Betas'].T,  
+									index=self.pvalue_df.index, 
+									columns=self.pvalue_df.columns)
 
 	def Differerntial_analysis(self, condition=None, threshold=0.05):
 		"""
@@ -301,4 +309,17 @@ class Perturb_NBGLM(object):
 			idx = np.where(self.pvalue_df.loc[c] < threshold)[0]
 			DEGs[c] = [list(self.genes[idx]), self.pvalue_df.loc[c, self.genes[idx]].values]
 		return DEGs
-		
+	
+	def regress_out_plate_effect(self):
+        
+		plate_betas = self.beta_df.loc[self.plate_variable].values
+		plate_design = self.input_data.loc[:,self.plate_variable].values
+
+		plate_effect = plate_design @ plate_betas
+		logX = sc.pp.log1p(self.adata.X, copy=True)
+		offset = self.input_data['Size_factor'].apply(np.log).values
+		correct_X = logX - offset.reshape(-1,1) - plate_effect
+		correct_X = np.exp(correct_X)
+
+		self.adata.layers['Plate_Correct_Count'] = correct_X
+		return correct_X
