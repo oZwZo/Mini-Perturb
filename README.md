@@ -34,4 +34,14 @@ pert_glm = Perturb_NBGLM(
     interaction_terms = None
 )
 pert_glm.fit(n_jobs=20)
+
+# plate effect removal
+corrected_X = pert_glm.regress_out_plate_effect()
+adata_corrected = adata.copy()
+adata_corrected.X = corrected_x
+
+# find DEGs
+DEGs = pert_glm.Differerntial_analysis(threshold=0.01)
+
+print(DEGs['Zbtb17'])
 ```
