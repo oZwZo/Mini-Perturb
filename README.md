@@ -2,7 +2,7 @@
 
 ## Clone repository and install prereqruisite
 ```
-git clone xx
+git clone https://github.com/oZwZo/Mini-Perturb.git
 conda create -n GLM
 conda activate GLM
 conda install python>3.9
